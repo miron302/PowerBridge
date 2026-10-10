@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
   <img src="assets/PowerBridge-1024.png" width="160" alt="PowerBridge icon">
 </p>
 
