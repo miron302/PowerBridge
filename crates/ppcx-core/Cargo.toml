@@ -1,0 +1,8 @@
+[package]
+name = "ppcx-core"
+version = "0.1.0"
+edition = "2021"
+description = "PowerPC (32-bit, big-endian) Mach-O user-mode translator for Intel Macs"
+license = "MIT"
+
+[dependencies]

@@ -1,0 +1,7 @@
+[package]
+name = "ppcx"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ppcx-core = { path = "../ppcx-core" }

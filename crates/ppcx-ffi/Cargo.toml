@@ -1,0 +1,11 @@
+[package]
+name = "ppcx-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ppcx_ffi"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+ppcx-core = { path = "../ppcx-core" }

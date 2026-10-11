@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["crates/ppcx-core", "crates/ppcx-cli", "crates/ppcx-ffi"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

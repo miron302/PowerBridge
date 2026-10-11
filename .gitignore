@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Rust build output
+/target/
+
+# Swift build output
+/swift/.build/
+
+# Compiled release binary
+/dist/ppcx
+
+# Debug symbols and archives
+*.dSYM/
+*.xcarchive/
