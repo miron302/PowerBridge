@@ -3,21 +3,13 @@
 </p>
 
 <h1 align="center">PowerBridge</h1>
-<<<<<<< HEAD
-<p align="center"><b>Bring old PowerPC Mac programs to your modern Mac.</b><br>Version 0.1.0 · early release</p>
-=======
 <p align="center"><b>Bring old PowerPC Mac programs to your modern Mac.</b></p>
->>>>>>> origin/main
 
 ---
 
 ## What is PowerBridge?
 
-<<<<<<< HEAD
-Before 2006, Macs ran on PowerPC chips, and a lot of software from that era was never updated for
-=======
 Before 2006, Macs ran on PowerPC chips, and some of the software from that era was never updated for
->>>>>>> origin/main
 today's Macs. PowerBridge lets you open those old PowerPC programs and run them on a current Mac.
 
 Drop a program onto the window, press **Run**, and see what it does.
@@ -28,23 +20,15 @@ Drop a program onto the window, press **Run**, and see what it does.
   - 🟢 **Should run** – go ahead and press Run.
   - 🟠 **May run partially** – it might get part of the way.
   - 🔴 **Not supported** – this one won't work (yet).
-<<<<<<< HEAD
-- **Look inside installer packages.** Old Mac software often comes as a `.pkg` installer. Drop it in and PowerBridge
-  shows you the PowerPC apps and programs inside, without installing anything.
-=======
->>>>>>> origin/main
 - **Run programs.** See what the program prints in the window, and stop it any time.
 - **Make an Intel app.** Turn a PowerPC app into a normal app you can double-click, so you don't need to open
   PowerBridge every time.
 
-<<<<<<< HEAD
-=======
 ## Current focuses
  - Adding PKG support
  - Make more complex apps run (eg: word processors, games, etc.)
  - Add more customisation
 
->>>>>>> origin/main
 ## Please read: what works today
 
 PowerBridge is an early version, and it's honest about its limits.
@@ -59,12 +43,7 @@ is changed on your Mac.
 ## Using PowerBridge
 
 1. **Open PowerBridge.**
-<<<<<<< HEAD
-2. **Drop a PowerPC app, program, or installer package (.pkg) onto the window** (or click **Choose…** in the toolbar).
-   If a package contains several things, pick the one you want from the list in the side panel.
-=======
 2. **Drop a PowerPC app or program onto the window** (or click **Choose…** in the toolbar).
->>>>>>> origin/main
 3. Look at the colored badge on the right to see if it should work.
 4. Press **▶ Run**. Whatever the program prints appears in the main area. Press **■ Stop** to end it.
 5. Optional: click **Make Intel App**, pick a folder, and PowerBridge creates a copy named
@@ -74,21 +53,10 @@ Handy extras in the side panel: type **arguments** for a program, set a **time l
 **trace** switches if you want to see what a program is asking for.
 
 ---
-<<<<<<< HEAD
-
-## About installer packages (.pkg)
-
-- PowerBridge **only looks inside** a package. It never installs anything and never runs the installer's scripts.
-- Files are unpacked into a temporary folder that is removed when you quit PowerBridge.
-- A few very old or very new installers use a compression PowerBridge can't open yet. If that happens you'll
-  see a message saying so.
-
-=======
 ## Quick start
  - Download the latest release from the releases tab.
 
    
->>>>>>> origin/main
 ## Building PowerBridge from the source code
 
 This turns the source code folder into the **PowerBridge.app** you can put in your Applications folder.
@@ -155,20 +123,6 @@ You only have to do this once.
 
 ---
 
-<<<<<<< HEAD
-### Optional: make an installer for PowerBridge itself
-
-Once PowerBridge.app is built (Step 3), you can package it into a standard Mac installer file:
-
-```
-sh scripts/make-pkg.sh
-```
-
-This creates `dist/PowerBridge-0.1.0.pkg`. Double-click it to install PowerBridge into Applications. Like the app, it isn't
-signed by Apple, so right-click it and choose **Open** the first time.
-
-=======
->>>>>>> origin/main
 ## Troubleshooting
 
 | What you see | What to do |
@@ -176,10 +130,6 @@ signed by Apple, so right-click it and choose **Open** the first time.
 | `command not found: cargo` | Close Terminal and open it again, or run `source ~/.cargo/env` and retry. |
 | `command not found: swift` | Repeat Step 1 and make sure the installation finished. |
 | The build stops with an error | Run `sh scripts/bundle.sh` again. If it keeps failing, copy the last lines of the error message when asking for help. |
-<<<<<<< HEAD
-| “…a compression method … can't open yet” | That installer can't be read by this version of PowerBridge. |
-=======
->>>>>>> origin/main
 | macOS says the app is “damaged” or “can't be opened” | Run `xattr -cr /Applications/PowerBridge.app` in Terminal, then open it again as in Step 5. |
 | The icon looks generic | Move the app to a different folder and back, or restart Finder (hold Option, right-click the Finder icon in the Dock, choose Relaunch). |
 
@@ -191,11 +141,5 @@ Not yet. See *Please read: what works today* above.
 **Does it change or damage my old apps?**
 No. PowerBridge only reads them. “Make Intel App” makes a *copy* and leaves the original alone.
 
-<<<<<<< HEAD
-**Does opening an installer (.pkg) install anything?**
-No. PowerBridge only looks at what is inside it.
-
-=======
->>>>>>> origin/main
 **Do I need Rosetta?**
 No.
