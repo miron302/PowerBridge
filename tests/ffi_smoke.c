@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     char *res = NULL;
     CHECK(ppcx_wrap_app(tool, dest, ppcx_bin, &res) == 0);
     printf("wrapped: %s\n", res);
-    CHECK(strstr(res, "Bin Tool (Intel).app") != NULL);
+    CHECK(strstr(res, "Bin Tool (PowerBridge).app") != NULL);
     ppcx_string_free(res);
     CHECK(ppcx_wrap_app("/nonexistent.app", dest, ppcx_bin, &res) == 1);
     printf("wrap error: %s\n", res);

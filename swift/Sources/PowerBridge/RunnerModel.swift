@@ -186,16 +186,16 @@ final class RunnerModel: ObservableObject {
         console.appendStatus(text)
     }
 
-    // MARK: Intel wrapper
+    // MARK: Standalone wrapper
 
-    func makeIntelApp() {
+    func makeStandaloneApp() {
         guard let a = analysis, a.kind == "app" else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt = "Create Here"
-        panel.message = "Choose where to create “\(a.name) (Intel).app”"
+        panel.message = "Choose where to create “\(a.name) (PowerBridge).app”"
         guard panel.runModal() == .OK, let dest = panel.url else { return }
         guard let translator = Self.translatorPath() else {
             notice = "Cannot find the bundled ppcx translator. Rebuild with scripts/bundle.sh."

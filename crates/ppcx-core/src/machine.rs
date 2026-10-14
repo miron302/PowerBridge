@@ -18,6 +18,8 @@ pub(crate) const STACK_SIZE: u32 = 8 * 1024 * 1024;
 pub(crate) const FILE_STDIN: u32 = SCRATCH;
 pub(crate) const FILE_STDOUT: u32 = SCRATCH + 0x40;
 pub(crate) const FILE_STDERR: u32 = SCRATCH + 0x80;
+pub(crate) const FILE_TABLE: u32 = SCRATCH + 0x1000; // 64 FILE slots of 0x40 bytes
+pub(crate) const FILE_SLOTS: u32 = 64;
 pub(crate) const CELL_STDINP: u32 = SCRATCH + 0xC0;
 pub(crate) const CELL_STDOUTP: u32 = SCRATCH + 0xC4;
 pub(crate) const CELL_STDERRP: u32 = SCRATCH + 0xC8;
@@ -34,6 +36,14 @@ pub(crate) const DATA_SYMBOLS: &[&str] = &[
     "_errno", "___mh_execute_header", "__mh_execute_header",
 ];
 const GENERIC_CELLS: u32 = SCRATCH + 0x200;
+
+/// State of an open stdio stream (the guest's `FILE *`).
+pub(crate) struct Stream {
+    pub fd: u32,
+    pub eof: bool,
+    pub err: bool,
+    pub unget: Option<u8>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -95,6 +105,10 @@ pub struct Machine {
     pub(crate) crash: Option<String>,
     pub(crate) rng: u32,
     pub(crate) warned: HashSet<String>,
+    pub(crate) fret: Option<f64>,
+    pub(crate) streams: HashMap<u32, Stream>,
+    pub(crate) stdin_unget: Option<u8>,
+    pub(crate) stdin_eof: bool,
     generic_next: u32,
 }
 
@@ -122,10 +136,14 @@ impl Machine {
             crash: None,
             rng: 1,
             warned: HashSet::new(),
+            fret: None,
+            streams: HashMap::new(),
+            stdin_unget: None,
+            stdin_eof: false,
             generic_next: GENERIC_CELLS,
         };
         m.map_image(&mo)?;
-        m.mem.map(SCRATCH, 0x2000);
+        m.mem.map(SCRATCH, 0x4000);
         m.mem.map(STACK_TOP - STACK_SIZE, STACK_SIZE);
         // Returning from the entry point behaves like exit(r3).
         let exit_slot = m.import_slot("_exit");
@@ -208,7 +226,7 @@ impl Machine {
     }
 
     fn data_cell(&mut self, name: &str) -> Option<u32> {
-        Some(match name {
+        Some(match crate::hle::normalize(name) {
             "___stdinp" => CELL_STDINP,
             "___stdoutp" => CELL_STDOUTP,
             "___stderrp" => CELL_STDERRP,

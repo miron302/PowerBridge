@@ -1,5 +1,5 @@
 //! `.app` bundle support: Info.plist parsing (XML + binary), compatibility analysis,
-//! and generation of an Intel-launchable wrapper app around a PowerPC app.
+//! and generation of a standalone wrapper app around a PowerPC app.
 
 use crate::{hle, macho};
 use std::fs;
@@ -588,7 +588,7 @@ fn set_exec(p: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Create "<Name> (Intel).app": a normal Intel app whose launcher runs the embedded PowerPC app
+/// Create "<Name> (PowerBridge).app": a normal Mac app whose launcher runs the embedded PowerPC app
 /// through the `ppcx` translator binary. Returns the path of the new bundle.
 pub fn wrap_app(src: &Path, dest_dir: &Path, ppcx_bin: &Path) -> Result<PathBuf, String> {
     let b = AppBundle::open(src)?;
@@ -599,7 +599,7 @@ pub fn wrap_app(src: &Path, dest_dir: &Path, ppcx_bin: &Path) -> Result<PathBuf,
         return Err(format!("translator binary not found: {}", ppcx_bin.display()));
     }
     let name: String = b.name().chars().map(|c| if c == '/' || c == ':' { '-' } else { c }).collect();
-    let out = dest_dir.join(format!("{name} (Intel).app"));
+    let out = dest_dir.join(format!("{name} (PowerBridge).app"));
     if out.starts_with(src) {
         return Err("destination must not be inside the source app".into());
     }
@@ -654,7 +654,7 @@ pub fn wrap_app(src: &Path, dest_dir: &Path, ppcx_bin: &Path) -> Result<PathBuf,
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
          <plist version=\"1.0\"><dict>\n\
-         <key>CFBundleName</key><string>{name} (Intel)</string>\n\
+         <key>CFBundleName</key><string>{name} (PowerBridge)</string>\n\
          <key>CFBundleExecutable</key><string>launcher</string>\n\
          <key>CFBundleIdentifier</key><string>local.powerbridge.{ident}</string>\n\
          <key>CFBundlePackageType</key><string>APPL</string>\n\

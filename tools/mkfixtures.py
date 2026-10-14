@@ -15,6 +15,7 @@ def addis(rt, ra, si): return D(15, rt, ra, si)
 def ori(ra, rs, ui): return D(24, rs, ra, ui)
 def li(rt, v): return addi(rt, 0, v)
 def lwz(rt, d, ra): return D(32, rt, ra, d)
+def lfd(frt, d, ra): return D(50, frt, ra, d)
 def stw(rs, d, ra): return D(36, rs, ra, d)
 def stwu(rs, d, ra): return D(37, rs, ra, d)
 def lwzu(rt, d, ra): return D(33, rt, ra, d)
@@ -186,6 +187,48 @@ def prog_ops(a, A):
 
 PPC_EXE_HOLDER = []
 
+def prog_calc_named(printf_name, exit_name):
+    def prog(a, A):
+        a.e(stwu(1, -80, 1))
+        a.e(li(4, 0), li(5, 1)); a.label("l1")
+        a.e(add(4, 4, 5), addi(5, 5, 1), cmpwi(5, 11)); a.bc(4, 2, "l1")
+        a.e(li(6, 1), li(7, 1)); a.label("l2")
+        a.e(mullw(6, 6, 7), addi(7, 7, 1), cmpwi(7, 11)); a.bc(4, 2, "l2")
+        a.e(mr(5, 6), li(6, 255), *li32(7, A["str:name"]), *li32(3, A["str:fmt"]))
+        a.bl(A["stub:" + printf_name])
+        a.e(li(3, 7))
+        a.bl(A["stub:" + exit_name])
+    return prog
+
+def prog_libc(a, A):
+    """sqrt/pow (FP returns), strtol with endptr, and stdio file round trip on argv[1]."""
+    def call(name): a.bl(A["stub:" + name])
+    def pf(fmt, *setup):                       # printf(fmt, ...) with caller-prepared argument registers
+        a.e(*setup, *li32(3, A["str:" + fmt])); call("printf")
+    a.e(lwz(30, 8, 1))                          # r30 = argv[1]
+    a.e(stwu(1, -96, 1))
+    a.e(*li32(3, A["str:two"]), lfd(1, 0, 3)); call("sqrt")
+    pf("fmt_f")                                 # printf("%.4f\n", sqrt(2.0)) - result stays in f1
+    a.e(*li32(3, A["str:two"]), lfd(1, 0, 3), *li32(4, A["str:ten"]), lfd(2, 0, 4)); call("pow")
+    pf("fmt_f1")                                # printf("%.1f\n", pow(2.0, 10.0))
+    a.e(*li32(3, A["str:num"]), addi(4, 1, 8), li(5, 10)); call("strtol")
+    pf("fmt_l", mr(4, 3), lwz(5, 8, 1))         # printf("%d [%s]\n", v, end)
+    a.e(mr(3, 30), *li32(4, A["str:wmode"])); call("fopen"); a.e(mr(31, 3))
+    a.e(*li32(3, A["str:l1"]), mr(4, 31)); call("fputs")
+    a.e(mr(3, 31), *li32(4, A["str:fmt_n"]), li(5, 5)); call("fprintf")
+    a.e(mr(3, 31)); call("fclose")
+    a.e(mr(3, 30), *li32(4, A["str:rmode"])); call("fopen"); a.e(mr(31, 3))
+    for _ in range(2):
+        a.e(addi(3, 1, 16), li(4, 64), mr(5, 31)); call("fgets")
+        pf("fmt_s", addi(4, 1, 16))             # printf("%s", line)
+    a.e(addi(3, 1, 16), li(4, 64), mr(5, 31)); call("fgets")
+    pf("fmt_null", mr(4, 3))                    # fgets at EOF returns NULL -> 0
+    a.e(mr(3, 31)); call("feof")
+    pf("fmt_eof", mr(4, 3))
+    a.e(mr(3, 31)); call("fclose")
+    a.e(mr(3, 30)); call("remove")
+    a.e(li(3, 0)); call("exit")
+
 def prog_cocoa(a, A):
     a.bl(A["stub:NSApplicationMain"])
     a.e(li(3, 0))
@@ -348,6 +391,15 @@ def main():
         "ops": build_macho(prog_ops, {"fmt1": b"%d %d %d %d %d %d %d\n", "fmt2": b"%d %x\n"}, ["printf", "exit"]),
     }
     files["calc_printf_fat"] = fat_wrap(files["calc_printf"])
+    files["decorated"] = build_macho(prog_calc_named("printf$LDBL128", "exit$UNIX2003"),
+                                     {"fmt": b"sum=%d fact=%d hex=0x%x str=%s\n", "name": b"PowerPC"},
+                                     ["printf$LDBL128", "exit$UNIX2003"])
+    files["libc_stdio"] = build_macho(prog_libc, {
+        "two": struct.pack(">d", 2.0), "ten": struct.pack(">d", 10.0),
+        "fmt_f": b"%.4f\n", "fmt_f1": b"%.1f\n", "fmt_l": b"%d [%s]\n", "fmt_s": b"%s",
+        "fmt_n": b"n=%d\n", "l1": b"line one\n", "num": b"  -42xyz", "wmode": b"w", "rmode": b"r",
+        "fmt_null": b"fgets_at_eof=%d\n", "fmt_eof": b"eof=%d\n"},
+        ["sqrt", "pow", "printf", "strtol", "fopen", "fputs", "fprintf", "fclose", "fgets", "feof", "remove", "exit"])
     strs = {"fmt": b"sum=%d fact=%d hex=0x%x str=%s\n", "name": b"PowerPC"}
     hello_app = build_macho(prog_calc, strs, ["printf", "exit"], [LIBSYS])
     make_app("Hello", "hello", hello_app, {"CFBundleName": "Hello", "CFBundleIdentifier": "test.ppcx.hello",

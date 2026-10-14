@@ -60,3 +60,40 @@ fn rejects_non_ppc() {
     let err = Machine::load(&x86, Config::default(), sink).err().expect("must fail");
     assert!(err.contains("not a PowerPC"), "{err}");
 }
+
+#[test]
+fn decorated_symbol_names_are_recognised() {
+    // Leopard-era binaries import names like _printf$LDBL128 / _exit$UNIX2003
+    let (o, s, l) = run("decorated.bin");
+    assert_eq!(s, "sum=55 fact=3628800 hex=0xff str=PowerPC\n", "logs: {l}");
+    assert_eq!(o, Outcome::Exited(7));
+    assert!(ppcx_core::pkg::is_pkg_path(std::path::Path::new("a.pkg")));
+}
+
+#[test]
+fn libc_math_strtol_and_file_io() {
+    let path = std::env::temp_dir().join(format!("ppcx-libc-test-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let (o2, l2) = (out.clone(), logs.clone());
+    let sink = Box::new(move |ev: Event| match ev {
+        Event::Stdout(b) => o2.lock().unwrap().extend(b),
+        Event::Stderr(b) => o2.lock().unwrap().extend(b),
+        Event::Log(s) => l2.lock().unwrap().push(s),
+    });
+    let mut cfg = Config::default();
+    cfg.args = vec!["libc_stdio".into(), path.display().to_string()];
+    cfg.max_insns = 10_000_000;
+    let mut m = Machine::load(&fixture("libc_stdio.bin"), cfg, sink).unwrap();
+    let outcome = m.run();
+    let s = String::from_utf8_lossy(&out.lock().unwrap()).into_owned();
+    let l = logs.lock().unwrap().join("\n");
+    assert_eq!(
+        s,
+        "1.4142\n1024.0\n-42 [xyz]\nline one\nn=5\nfgets_at_eof=0\neof=1\n",
+        "logs: {l}"
+    );
+    assert_eq!(outcome, Outcome::Exited(0));
+    assert!(!path.exists(), "remove() should have deleted the file");
+}

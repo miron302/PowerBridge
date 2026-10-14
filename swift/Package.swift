@@ -2,9 +2,12 @@
 import PackageDescription
 import Foundation
 
-// The Rust static library (libppcx_ffi.a) is built by scripts/bundle.sh into <repo>/target/release.
 let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().path
-let rustLibDir = repoRoot + "/target/release"
+// scripts/bundle.sh merges the per-architecture Rust libraries into target/universal (Apple silicon + Intel).
+let universalDir = repoRoot + "/target/universal"
+let rustLibDir = FileManager.default.fileExists(atPath: universalDir + "/libppcx_ffi.a")
+    ? universalDir
+    : repoRoot + "/target/release"
 
 let package = Package(
     name: "PowerBridge",

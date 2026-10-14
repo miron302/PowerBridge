@@ -1,4 +1,4 @@
-//! ppcx-core: run 32-bit PowerPC Mach-O programs on an Intel (or any little-endian) host.
+//! ppcx-core: run 32-bit PowerPC Mach-O programs on a modern Mac (Apple silicon or Intel) or any little-endian host.
 //!
 //! Design: a Mach-O loader + a PowerPC interpreter + "high-level emulation" of the Darwin
 //! syscall interface and the most common libSystem imports. No Apple binaries are needed.

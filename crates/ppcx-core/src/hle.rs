@@ -17,10 +17,21 @@ pub const SUPPORTED_IMPORTS: &[&str] = &[
     "_keymgr_dwarf2_register_sections", "_dyld_make_delayed_module_initializer_calls",
     "_dyld_func_lookup", "mach_init_routine", "_cthread_init_routine", "_dyld_init_check",
     "dyld_stub_binding_helper", "_cxa_atexit", "_keymgr_unregister_sections",
+    "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "exp", "log",
+    "log10", "pow", "floor", "ceil", "fabs", "fmod", "strtod", "atof", "strtol", "strtoul", "strstr",
+    "strcasecmp", "strncasecmp", "strncat", "getchar", "fgetc", "getc", "fgets", "ungetc", "fread",
+    "fseek", "ftell", "rewind", "feof", "ferror", "remove", "unlink", "rename",
 ];
+
+/// Real binaries reference decorated names such as `_fwrite$UNIX2003` or `_printf$LDBL128`.
+/// The decoration selects a libc variant; the base function is what we emulate.
+pub fn normalize(sym: &str) -> &str {
+    sym.split('$').next().unwrap_or(sym)
+}
 
 /// True if the host provides this imported symbol (symbol name as in the Mach-O, with `_` prefix).
 pub fn is_supported_import(sym: &str) -> bool {
+    let sym = normalize(sym);
     let n = sym.strip_prefix('_').unwrap_or(sym);
     SUPPORTED_IMPORTS.contains(&n) || DATA_SYMBOLS.contains(&sym)
 }
@@ -56,7 +67,8 @@ impl Machine {
 
     pub(crate) fn hle_call(&mut self, idx: usize) {
         let full = self.imports[idx].clone();
-        let name = full.strip_prefix('_').unwrap_or(&full).to_string();
+        let base = normalize(&full);
+        let name = base.strip_prefix('_').unwrap_or(base).to_string();
         if self.cfg.trace_imports {
             let (a0, a1, a2) = (self.arg(0), self.arg(1), self.arg(2));
             self.log(format!("[imp] {full}({a0:#x}, {a1:#x}, {a2:#x})"));
@@ -64,6 +76,9 @@ impl Machine {
         match self.hle_inner(&name) {
             Ok(ret) => {
                 self.cpu.gpr[3] = ret;
+                if let Some(f) = self.fret.take() {
+                    self.cpu.fpr[1] = f; // floating-point results come back in f1
+                }
                 self.cpu.pc = self.cpu.lr;
             }
             Err(f) => {
@@ -80,19 +95,103 @@ impl Machine {
         let _ = self.mem.write_u32(ERRNO_CELL, e as u32);
     }
 
-    fn out_fd(&mut self, fd: u32, data: Vec<u8>) {
-        match fd {
-            2 => self.emit(Event::Stderr(data)),
-            _ => self.emit(Event::Stdout(data)),
+    fn alloc_stream(&mut self, fd: u32) -> u32 {
+        for i in 0..FILE_SLOTS {
+            let p = FILE_TABLE + i * 0x40;
+            if !self.streams.contains_key(&p) {
+                self.streams.insert(p, Stream { fd, eof: false, err: false, unget: None });
+                return p;
+            }
+        }
+        0
+    }
+
+    fn read_byte(&mut self, file: u32) -> Option<u8> {
+        use std::io::Read;
+        let mut b = [0u8; 1];
+        if file == FILE_STDIN {
+            if let Some(c) = self.stdin_unget.take() {
+                return Some(c);
+            }
+            if self.stdin_eof {
+                return None;
+            }
+            return match self.stdin.read(&mut b) {
+                Ok(1) => Some(b[0]),
+                _ => {
+                    self.stdin_eof = true;
+                    None
+                }
+            };
+        }
+        let st = self.streams.get_mut(&file)?;
+        if let Some(c) = st.unget.take() {
+            return Some(c);
+        }
+        let f = self.files.get_mut(&st.fd)?;
+        match f.read(&mut b) {
+            Ok(1) => Some(b[0]),
+            _ => {
+                st.eof = true;
+                None
+            }
         }
     }
 
-    fn file_fd(file: u32) -> Option<u32> {
+    /// Bulk read for fread() on host files; falls back to byte reads for stdin.
+    fn read_many(&mut self, file: u32, total: usize) -> Vec<u8> {
+        use std::io::Read;
+        let mut out = Vec::with_capacity(total.min(1 << 20));
+        if file == FILE_STDIN {
+            while out.len() < total {
+                match self.read_byte(file) {
+                    Some(b) => out.push(b),
+                    None => break,
+                }
+            }
+            return out;
+        }
+        let Some(st) = self.streams.get_mut(&file) else { return out };
+        if let Some(c) = st.unget.take() {
+            out.push(c);
+        }
+        let Some(f) = self.files.get_mut(&st.fd) else { return out };
+        let mut chunk = vec![0u8; 65536];
+        while out.len() < total {
+            let want = (total - out.len()).min(chunk.len());
+            match f.read(&mut chunk[..want]) {
+                Ok(0) | Err(_) => {
+                    st.eof = true;
+                    break;
+                }
+                Ok(n) => out.extend_from_slice(&chunk[..n]),
+            }
+        }
+        out
+    }
+
+    fn write_stream(&mut self, file: u32, data: &[u8]) -> bool {
+        use std::io::Write;
         match file {
-            FILE_STDIN => Some(0),
-            FILE_STDOUT => Some(1),
-            FILE_STDERR => Some(2),
-            _ => None,
+            FILE_STDOUT => {
+                self.emit(Event::Stdout(data.to_vec()));
+                true
+            }
+            FILE_STDERR => {
+                self.emit(Event::Stderr(data.to_vec()));
+                true
+            }
+            _ => {
+                let Some(st) = self.streams.get_mut(&file) else { return false };
+                let Some(f) = self.files.get_mut(&st.fd) else { return false };
+                match f.write_all(data) {
+                    Ok(_) => true,
+                    Err(_) => {
+                        st.err = true;
+                        false
+                    }
+                }
+            }
         }
     }
 
@@ -137,26 +236,248 @@ impl Machine {
             }
             "fputs" => {
                 let s = self.mem.read_cstr(r3, 1 << 20)?;
-                if let Some(fd) = Self::file_fd(r4) {
-                    self.out_fd(fd, s);
-                }
-                1
+                if self.write_stream(r4, &s) { 1 } else { u32::MAX }
             }
             "fputc" | "putc" => {
-                if let Some(fd) = Self::file_fd(r4) {
-                    self.out_fd(fd, vec![r3 as u8]);
-                }
-                r3 & 0xff
+                if self.write_stream(r4, &[r3 as u8]) { r3 & 0xff } else { u32::MAX }
             }
             "fwrite" => {
                 let total = r4.wrapping_mul(r5);
                 let data = self.mem.read_bytes(r3, total.min(1 << 24))?;
-                if let Some(fd) = Self::file_fd(self.arg(3)) {
-                    self.out_fd(fd, data);
-                }
-                r5
+                if self.write_stream(self.arg(3), &data) { r5 } else { 0 }
             }
-            "fflush" | "setvbuf" | "setbuf" | "fclose" => 0,
+            "fflush" | "setvbuf" | "setbuf" => 0,
+            "fopen" => {
+                let path = String::from_utf8_lossy(&self.mem.read_cstr(r3, 4096)?).into_owned();
+                let mode = String::from_utf8_lossy(&self.mem.read_cstr(r4, 8)?).into_owned();
+                let plus = mode.contains('+');
+                let mut o = std::fs::OpenOptions::new();
+                match mode.chars().next() {
+                    Some('r') => {
+                        o.read(true);
+                        if plus { o.write(true); }
+                    }
+                    Some('w') => {
+                        o.write(true).create(true).truncate(true);
+                        if plus { o.read(true); }
+                    }
+                    Some('a') => {
+                        o.append(true).create(true);
+                        if plus { o.read(true); }
+                    }
+                    _ => {
+                        self.set_errno(22);
+                        return Ok(0);
+                    }
+                }
+                match o.open(&path) {
+                    Ok(f) => {
+                        let fd = self.next_fd;
+                        self.next_fd += 1;
+                        self.files.insert(fd, f);
+                        let p = self.alloc_stream(fd);
+                        if p == 0 {
+                            self.files.remove(&fd);
+                            self.set_errno(24);
+                        }
+                        p
+                    }
+                    Err(e) => {
+                        self.set_errno(match e.kind() {
+                            std::io::ErrorKind::NotFound => 2,
+                            std::io::ErrorKind::PermissionDenied => 13,
+                            std::io::ErrorKind::AlreadyExists => 17,
+                            _ => 5,
+                        });
+                        0
+                    }
+                }
+            }
+            "fclose" => {
+                if let Some(st) = self.streams.remove(&r3) {
+                    self.files.remove(&st.fd);
+                    0
+                } else if matches!(r3, FILE_STDIN | FILE_STDOUT | FILE_STDERR) {
+                    0
+                } else {
+                    u32::MAX
+                }
+            }
+            "fgets" => {
+                let (buf, n, file) = (r3, r4 as usize, r5);
+                if n == 0 {
+                    return Ok(0);
+                }
+                let mut out = Vec::new();
+                while out.len() + 1 < n {
+                    match self.read_byte(file) {
+                        Some(b) => {
+                            out.push(b);
+                            if b == b'\n' {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                if out.is_empty() {
+                    0
+                } else {
+                    out.push(0);
+                    self.mem.write_bytes(buf, &out)?;
+                    buf
+                }
+            }
+            "fgetc" | "getc" => self.read_byte(r3).map(|b| b as u32).unwrap_or(u32::MAX),
+            "getchar" => self.read_byte(FILE_STDIN).map(|b| b as u32).unwrap_or(u32::MAX),
+            "ungetc" => {
+                if r4 == FILE_STDIN {
+                    self.stdin_unget = Some(r3 as u8);
+                    self.stdin_eof = false;
+                } else if let Some(st) = self.streams.get_mut(&r4) {
+                    st.unget = Some(r3 as u8);
+                    st.eof = false;
+                } else {
+                    return Ok(u32::MAX);
+                }
+                r3 & 0xff
+            }
+            "fread" => {
+                let (ptr, size, n, file) = (r3, r4 as usize, r5 as usize, self.arg(3));
+                if size == 0 || n == 0 {
+                    return Ok(0);
+                }
+                let total = size.saturating_mul(n).min(1 << 26);
+                let data = self.read_many(file, total);
+                let whole = data.len() / size;
+                self.mem.write_bytes(ptr, &data[..whole * size])?;
+                whole as u32
+            }
+            "fseek" | "rewind" => {
+                use std::io::{Seek, SeekFrom};
+                let (file, off, whence) = if name == "rewind" { (r3, 0i32, 0u32) } else { (r3, r4 as i32, r5) };
+                let Some(st) = self.streams.get_mut(&file) else { return Ok(u32::MAX) };
+                st.eof = false;
+                st.unget = None;
+                let Some(f) = self.files.get_mut(&st.fd) else { return Ok(u32::MAX) };
+                let pos = match whence {
+                    0 if off >= 0 => SeekFrom::Start(off as u64),
+                    1 => SeekFrom::Current(off as i64),
+                    2 => SeekFrom::End(off as i64),
+                    _ => return Ok(u32::MAX),
+                };
+                if f.seek(pos).is_ok() { 0 } else { u32::MAX }
+            }
+            "ftell" => {
+                use std::io::Seek;
+                let Some(st) = self.streams.get(&r3) else { return Ok(u32::MAX) };
+                let pending = st.unget.is_some() as u64;
+                let fd = st.fd;
+                match self.files.get_mut(&fd).and_then(|f| f.stream_position().ok()) {
+                    Some(p) => (p - pending) as u32,
+                    None => u32::MAX,
+                }
+            }
+            "feof" => {
+                if r3 == FILE_STDIN { self.stdin_eof as u32 } else { self.streams.get(&r3).map(|s| s.eof as u32).unwrap_or(0) }
+            }
+            "ferror" => self.streams.get(&r3).map(|s| s.err as u32).unwrap_or(0),
+            "remove" | "unlink" => {
+                let p = String::from_utf8_lossy(&self.mem.read_cstr(r3, 4096)?).into_owned();
+                let ok = std::fs::remove_file(&p).is_ok() || std::fs::remove_dir(&p).is_ok();
+                if ok { 0 } else { self.set_errno(2); u32::MAX }
+            }
+            "rename" => {
+                let a = String::from_utf8_lossy(&self.mem.read_cstr(r3, 4096)?).into_owned();
+                let b = String::from_utf8_lossy(&self.mem.read_cstr(r4, 4096)?).into_owned();
+                if std::fs::rename(&a, &b).is_ok() { 0 } else { self.set_errno(2); u32::MAX }
+            }
+            "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "exp" | "log"
+            | "log10" | "floor" | "ceil" | "fabs" => {
+                let a = self.cpu.fpr[1];
+                self.fret = Some(match name {
+                    "sqrt" => a.sqrt(),
+                    "sin" => a.sin(),
+                    "cos" => a.cos(),
+                    "tan" => a.tan(),
+                    "asin" => a.asin(),
+                    "acos" => a.acos(),
+                    "atan" => a.atan(),
+                    "sinh" => a.sinh(),
+                    "cosh" => a.cosh(),
+                    "tanh" => a.tanh(),
+                    "exp" => a.exp(),
+                    "log" => a.ln(),
+                    "log10" => a.log10(),
+                    "floor" => a.floor(),
+                    "ceil" => a.ceil(),
+                    _ => a.abs(),
+                });
+                0
+            }
+            "pow" | "atan2" | "fmod" => {
+                let (a, b) = (self.cpu.fpr[1], self.cpu.fpr[2]);
+                self.fret = Some(match name {
+                    "pow" => a.powf(b),
+                    "atan2" => a.atan2(b),
+                    _ => a % b,
+                });
+                0
+            }
+            "strtod" | "atof" => {
+                let s = self.mem.read_cstr(r3, 512)?;
+                let (v, used) = parse_float(&s);
+                if name == "strtod" && r4 != 0 {
+                    self.mem.write_u32(r4, r3.wrapping_add(used as u32))?;
+                }
+                self.fret = Some(v);
+                0
+            }
+            "strtol" | "strtoul" => {
+                let s = self.mem.read_cstr(r3, 512)?;
+                let (v, used) = parse_int(&s, r5);
+                if r4 != 0 {
+                    self.mem.write_u32(r4, r3.wrapping_add(used as u32))?;
+                }
+                if name == "strtol" {
+                    v.clamp(i32::MIN as i128, i32::MAX as i128) as i32 as u32
+                } else if v < 0 {
+                    (v as i64) as u32
+                } else {
+                    v.min(u32::MAX as i128) as u32
+                }
+            }
+            "strstr" => {
+                let h = self.mem.read_cstr(r3, 1 << 20)?;
+                let n = self.mem.read_cstr(r4, 1 << 16)?;
+                if n.is_empty() {
+                    r3
+                } else {
+                    h.windows(n.len()).position(|w| w == &n[..]).map(|p| r3 + p as u32).unwrap_or(0)
+                }
+            }
+            "strcasecmp" | "strncasecmp" => {
+                let limit = if name == "strncasecmp" { r5 as usize } else { 1 << 20 };
+                let a = self.mem.read_cstr(r3, limit)?.to_ascii_lowercase();
+                let b = self.mem.read_cstr(r4, limit)?.to_ascii_lowercase();
+                let mut r = 0i32;
+                let n = a.len().max(b.len());
+                for i in 0..n {
+                    let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
+                    if x != y {
+                        r = x as i32 - y as i32;
+                        break;
+                    }
+                }
+                r as u32
+            }
+            "strncat" => {
+                let dl = self.mem.read_cstr(r3, 1 << 24)?.len() as u32;
+                let mut s = self.mem.read_cstr(r4, r5 as usize)?;
+                s.push(0);
+                self.mem.write_bytes(r3 + dl, &s)?;
+                r3
+            }
             "printf" => {
                 let fmt = self.mem.read_cstr(r3, 1 << 16)?;
                 let mut a = Args { idx: 1, fidx: 0, sp: self.cpu.gpr[1] };
@@ -170,9 +491,7 @@ impl Machine {
                 let mut a = Args { idx: 2, fidx: 0, sp: self.cpu.gpr[1] };
                 let out = self.format(&fmt, &mut a)?;
                 let n = out.len() as u32;
-                if let Some(fd) = Self::file_fd(r3) {
-                    self.out_fd(fd, out);
-                }
+                self.write_stream(r3, &out);
                 n
             }
             "sprintf" | "snprintf" => {
@@ -351,12 +670,7 @@ impl Machine {
                 t
             }
             "getpid" => 1000,
-            "getenv" | "signal" | "sleep" | "usleep" | "fopen" => {
-                if name == "fopen" {
-                    self.set_errno(2);
-                }
-                0
-            }
+            "getenv" | "signal" | "sleep" | "usleep" => 0,
             "_error" => ERRNO_CELL,
             "atexit"
             | "_keymgr_dwarf2_register_sections"
@@ -546,6 +860,88 @@ impl Machine {
         }
         Ok(out)
     }
+}
+
+/// strtod-style prefix parse: returns (value, bytes consumed incl. leading whitespace; 0 if no number).
+fn parse_float(s: &[u8]) -> (f64, usize) {
+    let mut i = 0;
+    while i < s.len() && s[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let start = i;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        i += 1;
+    }
+    let ds = i;
+    while i < s.len() && s[i].is_ascii_digit() {
+        i += 1;
+    }
+    let mut digits = i - ds;
+    if i < s.len() && s[i] == b'.' {
+        i += 1;
+        let fs = i;
+        while i < s.len() && s[i].is_ascii_digit() {
+            i += 1;
+        }
+        digits += i - fs;
+    }
+    if digits == 0 {
+        return (0.0, 0);
+    }
+    if i < s.len() && (s[i] == b'e' || s[i] == b'E') {
+        let mut j = i + 1;
+        if j < s.len() && (s[j] == b'+' || s[j] == b'-') {
+            j += 1;
+        }
+        let es = j;
+        while j < s.len() && s[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > es {
+            i = j;
+        }
+    }
+    let text = std::str::from_utf8(&s[start..i]).unwrap_or("0");
+    (text.parse::<f64>().unwrap_or(0.0), i)
+}
+
+/// strtol-style parse: returns (value saturated to i128 range of u32/i32, bytes consumed; 0 if no digits).
+fn parse_int(s: &[u8], base: u32) -> (i128, usize) {
+    let mut i = 0;
+    while i < s.len() && s[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let mut neg = false;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        neg = s[i] == b'-';
+        i += 1;
+    }
+    let mut base = base;
+    let has_0x = i + 1 < s.len() && s[i] == b'0' && (s[i + 1] == b'x' || s[i + 1] == b'X');
+    if (base == 0 || base == 16) && has_0x && s.get(i + 2).map_or(false, |c| (*c as char).is_digit(16)) {
+        i += 2;
+        base = 16;
+    } else if base == 0 {
+        base = if i < s.len() && s[i] == b'0' { 8 } else { 10 };
+    }
+    if !(2..=36).contains(&base) {
+        return (0, 0);
+    }
+    let ds = i;
+    let mut v: i128 = 0;
+    while i < s.len() {
+        match (s[i] as char).to_digit(base) {
+            Some(d) => {
+                v = (v * base as i128 + d as i128).min(1 << 70);
+                i += 1;
+            }
+            None => break,
+        }
+    }
+    if i == ds {
+        return (0, 0);
+    }
+    (if neg { -v } else { v }, i)
 }
 
 fn fmt_exp(v: f64, prec: usize, upper: bool) -> String {

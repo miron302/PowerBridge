@@ -23,9 +23,9 @@ struct ContentView: View {
                     Button { model.run() } label: { Label("Run", systemImage: "play.fill") }
                         .disabled(model.url == nil || model.analysisError != nil)
                 }
-                Button { model.makeIntelApp() } label: { Label("Make Intel App", systemImage: "shippingbox") }
+                Button { model.makeStandaloneApp() } label: { Label("Make Standalone App", systemImage: "shippingbox") }
                     .disabled(model.analysis?.kind != "app" || model.running)
-                    .help("Create an Intel-launchable wrapper around this PowerPC app")
+                    .help("Create a standalone Mac app that runs this PowerPC app through PowerBridge")
             }
         }
         .safeAreaInset(edge: .bottom) {

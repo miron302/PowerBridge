@@ -166,14 +166,14 @@ public final class Session {
     }
 }
 
-// MARK: - Intel wrapper
+// MARK: - Standalone wrapper
 
 public struct PPCXError: Error, LocalizedError {
     public let message: String
     public var errorDescription: String? { message }
 }
 
-/// Create "<Name> (Intel).app" in `destinationDir`: a normal app whose launcher runs the embedded
+/// Create "<Name> (PowerBridge).app" in `destinationDir`: a normal app whose launcher runs the embedded
 /// PowerPC app through the `ppcx` translator binary at `translatorBinary`. Returns the new bundle path.
 public func wrapApp(source: String, destinationDir: String, translatorBinary: String) -> Result<String, PPCXError> {
     var out: UnsafeMutablePointer<CChar>? = nil

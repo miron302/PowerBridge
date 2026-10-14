@@ -80,13 +80,13 @@ fn wrapper_has_expected_structure() {
     std::fs::write(&fake_ppcx, b"#!/bin/sh\n").unwrap();
 
     let out = bundle::wrap_app(&app("Hello.app"), &tmp, &fake_ppcx).unwrap();
-    assert_eq!(out.file_name().unwrap(), "Hello (Intel).app");
+    assert_eq!(out.file_name().unwrap(), "Hello (PowerBridge).app");
     assert!(out.join("Contents/MacOS/launcher").is_file());
     assert!(out.join("Contents/MacOS/ppcx").is_file());
     assert!(out.join("Contents/PowerPC/Hello.app/Contents/MacOS/hello").is_file());
     assert!(out.join("Contents/Resources/app.icns").is_file(), "icon copied");
     let plist = std::fs::read_to_string(out.join("Contents/Info.plist")).unwrap();
-    assert!(plist.contains("Hello (Intel)") && plist.contains("<string>launcher</string>"));
+    assert!(plist.contains("Hello (PowerBridge)") && plist.contains("<string>launcher</string>"));
     let parsed = bundle::parse_plist(plist.as_bytes()).unwrap();
     assert_eq!(parsed.get("CFBundleExecutable").and_then(|p| p.as_str()), Some("launcher"));
     #[cfg(unix)]

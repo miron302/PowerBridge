@@ -4,18 +4,18 @@ version = 3
 
 [[package]]
 name = "ppcx"
-version = "0.1.0"
+version = "1.0.1"
 dependencies = [
  "ppcx-core",
 ]
 
 [[package]]
 name = "ppcx-core"
-version = "0.1.0"
+version = "1.0.1"
 
 [[package]]
 name = "ppcx-ffi"
-version = "0.1.0"
+version = "1.0.1"
 dependencies = [
  "ppcx-core",
 ]

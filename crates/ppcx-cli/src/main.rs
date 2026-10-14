@@ -3,17 +3,18 @@ use std::io::Write;
 
 fn usage() -> ! {
     eprintln!(
-        "ppcx - PowerBridge command-line translator: run 32-bit PowerPC Mach-O programs on an Intel Mac\n\n\
+        "ppcx - PowerBridge command-line translator: run 32-bit PowerPC Mach-O programs on a modern Mac\n\n\
          usage: ppcx [options] <ppc-binary-or-.app> [args...]\n\n\
          options:\n  \
            --info             print compatibility report and exit\n  \
            --analyze          print the report as JSON and exit\n  \
-           --wrap DIR         create an Intel-launchable wrapper app for a PowerPC .app in DIR\n  \
+           --wrap DIR         create a standalone wrapper app for a PowerPC .app in DIR\n  \
            --extract-pkg DIR  unpack an installer package (.pkg/.mpkg) into DIR and list what's inside\n  \
            --trace-syscalls   log every syscall\n  \
            --trace-imports    log every libSystem import call\n  \
            --max-insns N      stop after N guest instructions\n  \
-           --regs             dump registers on exit"
+           --regs             dump registers on exit\n  \
+           --version          print the version"
     );
     std::process::exit(2)
 }
@@ -28,6 +29,10 @@ fn main() {
         match argv.remove(0).as_str() {
             "--info" => info = true,
             "--regs" => regs = true,
+            "--version" => {
+                println!("ppcx (PowerBridge) {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             "--analyze" => json = true,
             "--extract-pkg" => {
                 if argv.is_empty() { usage() }
